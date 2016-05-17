@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+    Copyright (C) 2016 KMEE INFORMATICA LTDA (https://www.kmee.com.br/)
+    @author Luis Felipe Miléo <mileo@kmee.com.br>
+    The licence is in the file __openerp__.py
+-->
+
+<openerp>
+<data>
+
+    <record id="invoice_payment_term_form" model="ir.ui.view">
+        <field name="name">account_payment_term.invoice_form</field>
+        <field name="model">account.invoice</field>
+        <field name="inherit_id" ref="account.invoice_form" />
+        <field name="arch" type="xml">
+            <page string="Other Info" position="before">
+                <page string="Payment Term">
+                    <field name="payment_terms"/>
+                </page>
+            </page>
+            <field name="date_invoice" position="attributes">
+                <attribute name="context_payment_terms">{'payment_terms': payment_terms}</attribute>
+            </field>
+            <field name="payment_term" position="attributes">
+                <attribute name="context_payment_terms">{'payment_terms': payment_terms}</attribute>
+            </field>
+        </field>
+    </record>
+
+    <record id="invoice_supplier_payment_term_form" model="ir.ui.view">
+        <field name="name">account_payment_term.invoice_supplier_form</field>
+        <field name="model">account.invoice</field>
+        <field name="inherit_id" ref="account.invoice_supplier_form" />
+        <field name="arch" type="xml">
+            <page string="Other Info" position="before">
+                <page string="Payment Term">
+                    <field name="payment_terms"/>
+                </page>
+            </page>
+            <field name="date_invoice" position="attributes">
+                <attribute name="context_payment_terms">{'payment_terms': payment_terms}</attribute>
+            </field>
+            <field name="payment_term" position="attributes">
+                <attribute name="context_payment_terms">{'payment_terms': payment_terms}</attribute>
+            </field>
+        </field>
+    </record>
+
+</data>
+</openerp>
