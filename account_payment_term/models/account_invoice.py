@@ -3,7 +3,7 @@
 #
 #    Account Payment Mode module for OpenERP
 #    Copyright (C) 2016 KMEE INFORMATICA LTDA (https://www.kmee.com.br/)
-#    @author Luis Felipe Miléo <mileo@kmee.com.br>
+#    @author Daniel Sadamo <daniel.sadamo@kmee.com.br>
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU Affero General Public License as
@@ -20,7 +20,7 @@
 #
 ##############################################################################
 
-from openerp import models, fields, api
+from openerp import api, fields, models
 
 
 class AccountInvoice(models.Model):
@@ -28,59 +28,44 @@ class AccountInvoice(models.Model):
 
     payment_terms = fields.One2many(
         string='Payment Term',
-        relation='account.invoice.term',
-        compute='_compute_payment_terms',
-        # inverse='_set_payment_terms',
-        # comodel_name='account.invoice.term',
-        # inverse_name='invoice_term',
+        comodel_name='account.invoice.term',
+        inverse_name='invoice_term',
         readonly=True,
         states={'draft': [('readonly', False)]},
-        copy=False,
+        # copy=False,
+        ondelete='set null',
     )
 
-    @api.depends('payment_term', 'move_lines', 'date_due')
-    def _compute_payment_terms(self):
-        if self.move_lines:
-            for line in self.move_lines:
-                term = {
-                    # 'date' :
-                }
-            # Computar a partir das move lins
-            pass
-        elif self.payment_term:
-            # Computar a partir do modo de pagamento
-            pass
-        elif self.date_due:
-            # Computar a partir da data de vencimento
-            pass
+    @api.onchange('payment_terms')
+    def onchange_payment_terms(self):
+        for invoice in self:
+            for pts in invoice.payment_terms:
+                pts._onchange_calc_amount()
+                if pts.payment_term_id != invoice.payment_term:
+                    pts.unlink()
 
+    @api.multi
+    def onchange_payment_term_date_invoice(self, payment_term_id, date_invoice):
+        invoice_ids = self.ids
 
+        res = super(AccountInvoice, self.with_context(
+            invoice_ids=invoice_ids,
+            payment_term_id=payment_term_id)
+            ).onchange_payment_term_date_invoice(payment_term_id, date_invoice)
 
-    # # @api.multi
-    # # @api.depends('payment_term', 'amount_total')
-    # # def _compute_payment_term(self):
-    # #     for record in self:
-    # #         res = record.payment_term.compute(record.amount_total)
-    # #         pass
-    #
-    # @api.multi
-    # def onchange_payment_term_date_invoice(
-    #         self, payment_term_id, date_invoice):
-    #     ctx = dict(self.env.context)
-    #     payment_terms = ctx.get('payment_terms', False)
-    #
-    #     if not payment_terms and not payment_term_id:
-    #         res = super(
-    #             AccountInvoice, self).onchange_payment_term_date_invoice(
-    #             payment_term_id, date_invoice
-    #         )
-    #         vals = {'date': res['value']['date_due']}
-    #         self.payment_terms.create(vals)
-    #         return res
-    #     res = []
-    #     for item in payment_terms:
-    #         res.append((item.date, item.amount))
-    #     return res
+        pt = self.env['account.payment.term'].browse(payment_term_id)
+        if pt:
+            new_payments = pt.compute(1, date_invoice)[0]
+            payments = pt.with_context(
+                payment_term_id=pt.id,
+                invoice_ids=invoice_ids).set_payments(new_payments)
+            if pt.compare_payments(self.payment_terms, payments):
+                res['value'].update({'payment_terms': payments})
+
+        else:
+            res['value'].update({'payment_terms': {}})
+
+        return res
 
 
 class AccountInvoiceTerm(models.Model):
@@ -88,7 +73,11 @@ class AccountInvoiceTerm(models.Model):
     _inherit = 'account.payment.term.model'
     _description = 'Invoice Payment Term'
 
-    # invoice_term = fields.Many2one(
-    #     comodel_name='account.invoice',
-    #     required=True,
-    #     ondelete="cascade")
+    payment_term_id = fields.Many2one(comodel_name='account.payment.term')
+    invoice_term = fields.Many2one(comodel_name='account.invoice')
+
+    @api.onchange('percent', 'payment_date', 'invoice_term', 'payment_term_id')
+    def _onchange_calc_amount(self):
+        for line in self:
+            if line.invoice_term:
+                line.amount = line.invoice_term.amount_total*line.percent

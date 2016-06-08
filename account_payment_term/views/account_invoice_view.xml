@@ -16,10 +16,18 @@
         <field name="arch" type="xml">
             <page string="Other Info" position="before">
                 <page string="Payment Term">
-                    <field name="payment_terms"/>
+                    <field name="payment_terms">
+                        <tree editable="bottom">
+                            <field name="payment_date" />
+                            <field name="amount" />
+                            <field name="percent" />
+                            <field name="payment_term_id" />
+                            <field name="invoice_term" />
+                        </tree>
+                    </field>
                 </page>
             </page>
-            <field name="date_invoice" position="attributes">
+            <field name="date_due" position="attributes">
                 <attribute name="context_payment_terms">{'payment_terms': payment_terms}</attribute>
             </field>
             <field name="payment_term" position="attributes">
@@ -38,7 +46,7 @@
                     <field name="payment_terms"/>
                 </page>
             </page>
-            <field name="date_invoice" position="attributes">
+            <field name="date_due" position="attributes">
                 <attribute name="context_payment_terms">{'payment_terms': payment_terms}</attribute>
             </field>
             <field name="payment_term" position="attributes">
