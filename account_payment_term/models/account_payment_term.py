@@ -23,38 +23,41 @@
 from openerp import api, fields, models
 from openerp.addons import decimal_precision as dp
 from openerp.osv import osv
+from openerp.exceptions import Warning as UserError
+
 
 
 class AccountPaymentTerm(osv.osv):
     _inherit = 'account.payment.term'
 
-    def compare_payments(self, inv_payments, new_payments):
-        res = False
-        for x in inv_payments:
-            pt = [y[2]['payment_term_id'] for y in new_payments]
-            if x.payment_term_id.id in pt:
-                res = True
-        return res
+    # def compare_payments(self, inv_payments, new_payments):
+    #     res = False
+    #     for x in inv_payments:
+    #         pt = [y[2]['payment_term_id'] for y in new_payments]
+    #         if x.payment_term_id.id in pt:
+    #             res = True
+    #     return res
 
     def compute(self, cr, uid, id, value, date_ref=False, context=None):
-        res = super(AccountPaymentTerm, self).compute(cr, uid, id,
-                                                      value, date_ref,
-                                                      context=context)
-        invoice_ids = context.get('invoice_ids', False)
-
-        if invoice_ids:
-            inv_pts = self.pool.get('account.invoice').browse(cr, uid,
-                                                              invoice_ids,
+        inv_id = context.get('invoice_ids', False)
+        if inv_id:
+            invoice = self.pool.get('account.invoice').browse(
+                cr, uid, inv_id, context=context)
+            if invoice.payment_terms:
+                return [(line.payment_date, line.amount)
+                        for line in invoice.payment_terms]
+            else:
+                res = super(AccountPaymentTerm, self).compute(cr, uid, id,
+                                                              value, date_ref,
                                                               context=context)
-            payments = self.set_payments(cr, uid, res, context=context)
+                invoice.payment_terms = self.set_payments(cr, uid,
+                                                          res, context=context)
+                return [(line.payment_date, line.amount)
+                        for line in invoice.payment_terms]
 
-            if (inv_pts.payment_terms and not
-                    self.compare_payments(inv_pts.payment_terms, payments)):
-                pts = inv_pts.payment_terms
-                res = [(pt.payment_date, pt.amount) for pt in pts]
-        else:
-            pass
-        return res
+        return super(AccountPaymentTerm, self).compute(cr, uid, id,
+                                                       value, date_ref,
+                                                       context=context)
 
     def set_payments(self, cr, uid, values, context=None):
         inv_obj = self.pool.get('account.invoice')
@@ -84,3 +87,33 @@ class AccountPaymentLineModel(models.AbstractModel):
     payment_date = fields.Date(string='Payment Date')
     amount = fields.Float(string='Amount', digits=dp.get_precision('Account'))
     percent = fields.Float(string="Porcentagem do Total")
+
+    @api.onchange('amount')
+    def onchange_amount(self):
+        for line in self:
+            if line.invoice_term:
+                total_amount = line.invoice_term.amount_total
+                percent = line.amount/total_amount
+                line.percent = percent
+
+    @api.onchange('percent')
+    def onchange_percent(self):
+        for line in self:
+            if line.invoice_term:
+                total_amount = line.invoice_term.amount_total
+                amount = (total_amount*line.percent)
+                line.amount = amount
+
+    @api.depends('amount', 'percent')
+    def check_totals(self):
+        amount = 0.0
+        percent = 0.0
+        for line in self.invoice_term.payment_terms:
+            amount += line.amount
+            percent += line.percent
+        if amount != 0.0 and amount != self.invoice_term.amount_total:
+            raise UserError(_('Valor total das parcelas '
+                              'diferente do total da fatura'))
+        if percent != 0.0 and percent != 1.0:
+            raise UserError(_('Porcentagem total das parcelas '
+                              'diferente de 100%'))

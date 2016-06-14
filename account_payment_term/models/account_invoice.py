@@ -20,7 +20,7 @@
 #
 ##############################################################################
 
-from openerp import api, fields, models
+from openerp import api, fields, models, _
 
 
 class AccountInvoice(models.Model):
@@ -32,7 +32,7 @@ class AccountInvoice(models.Model):
         inverse_name='invoice_term',
         readonly=True,
         states={'draft': [('readonly', False)]},
-        # copy=False,
+        copy=True,
         ondelete='set null',
     )
 
@@ -40,32 +40,55 @@ class AccountInvoice(models.Model):
     def onchange_payment_terms(self):
         for invoice in self:
             for pts in invoice.payment_terms:
-                pts._onchange_calc_amount()
-                if pts.payment_term_id != invoice.payment_term:
+                if invoice.payment_term.id != pts.payment_term_id.id:
                     pts.unlink()
+            # invoice.check_payment_terms()
+
+    # @api.depends('payment_terms.amount',
+    #              'payment_terms.percent')
+    # def check_payment_terms(self):
+    #     if not self.payment_terms or not self.amount_total:
+    #         return
+    #     self.payment_terms.onchange_amount()
+    #     self.payment_terms.onchange_percent()
 
     @api.multi
     def onchange_payment_term_date_invoice(self, payment_term_id, date_invoice):
-        invoice_ids = self.ids
+        if not payment_term_id:
+            return {'value': {'payment_terms': False}}
 
-        res = super(AccountInvoice, self.with_context(
-            invoice_ids=invoice_ids,
-            payment_term_id=payment_term_id)
-            ).onchange_payment_term_date_invoice(payment_term_id, date_invoice)
+        if self.payment_terms and (payment_term_id in
+                                   [term.payment_term_id.id
+                                    for term in self.payment_terms]):
+            return {'value': {'date_due': max(
+                self.payment_terms.mapped('payment_date')),
+                              'payment_terms': self.payment_terms}}
 
-        pt = self.env['account.payment.term'].browse(payment_term_id)
-        if pt:
-            new_payments = pt.compute(1, date_invoice)[0]
-            payments = pt.with_context(
-                payment_term_id=pt.id,
-                invoice_ids=invoice_ids).set_payments(new_payments)
-            if pt.compare_payments(self.payment_terms, payments):
-                res['value'].update({'payment_terms': payments})
+        ctx = dict(self._context)
+        ctx['invoice_ids'] = self.ids
+        ctx['payment_term_id'] = payment_term_id
+        result = super(AccountInvoice, self.with_context(
+            ctx)).onchange_payment_term_date_invoice(
+                payment_term_id, date_invoice)
+        new_payments = self.payment_term.browse(payment_term_id).compute(
+            1, date_invoice)
+        if new_payments:
+            payments = self.payment_term.browse(
+                payment_term_id).with_context(ctx).set_payments(
+                    new_payments[0])
+            result['value'].update({'payment_terms': payments})
+        return result
 
-        else:
-            res['value'].update({'payment_terms': {}})
-
-        return res
+    @api.multi
+    def action_move_create(self):
+        result = []
+        for invoice in self:
+            ctx = dict(invoice._context)
+            ctx['invoice_ids'] = invoice.id
+            ctx['payment_term_id'] = invoice.payment_term
+            invoice = invoice.with_context(ctx)
+            result.append(super(AccountInvoice, invoice).action_move_create())
+        return result
 
 
 class AccountInvoiceTerm(models.Model):
@@ -76,8 +99,3 @@ class AccountInvoiceTerm(models.Model):
     payment_term_id = fields.Many2one(comodel_name='account.payment.term')
     invoice_term = fields.Many2one(comodel_name='account.invoice')
 
-    @api.onchange('percent', 'payment_date', 'invoice_term', 'payment_term_id')
-    def _onchange_calc_amount(self):
-        for line in self:
-            if line.invoice_term:
-                line.amount = line.invoice_term.amount_total*line.percent
