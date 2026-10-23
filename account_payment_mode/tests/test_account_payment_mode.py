@@ -131,3 +131,46 @@ class TestAccountPaymentMode(BaseCommon):
                     "fixed_journal_id": self.journal_c1.id,
                 }
             )
+
+
+@tagged("post_install", "-at_install")
+class TestAccountPaymentMethodDisplayName(BaseCommon):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.method_out = cls.env["account.payment.method"].create(
+            {"name": "Test Method", "code": "TST", "payment_type": "outbound"}
+        )
+        cls.method_in = cls.env["account.payment.method"].create(
+            {"name": "Test Method", "code": "TST", "payment_type": "inbound"}
+        )
+
+    def test_display_name_uses_selection_label(self):
+        """The display name shows the selection label, not the technical value."""
+        self.assertEqual(
+            self.method_out.with_context(lang="en_US").display_name,
+            "[TST] Test Method (Outbound)",
+        )
+        self.assertEqual(
+            self.method_in.with_context(lang="en_US").display_name,
+            "[TST] Test Method (Inbound)",
+        )
+
+    def test_display_name_is_translated(self):
+        """The payment type label follows the language of the user."""
+        lang = self.env["res.lang"]._activate_lang("pt_BR")
+        self.env["base.language.install"].create(
+            {"lang_ids": [Command.set(lang.ids)], "overwrite": True}
+        ).lang_install()
+        translated = dict(
+            self.env["account.payment.method"]
+            .with_context(lang="pt_BR")
+            ._fields["payment_type"]
+            ._description_selection(self.env(context={"lang": "pt_BR"}))
+        )
+        self.assertNotEqual(translated["outbound"], "Outbound")
+        method = self.method_out.with_context(lang="pt_BR")
+        self.assertEqual(
+            method.display_name, f"[TST] Test Method ({translated['outbound']})"
+        )
+        self.assertNotIn("outbound", method.display_name)
