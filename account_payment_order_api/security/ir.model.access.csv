@@ -5,3 +5,4 @@ access_account_payment_api_line,Payment API line for Payment Manager,model_accou
 access_account_payment_api_line_readonly,Payment API line read only,model_account_payment_api_line,account.group_account_readonly,1,0,0,0
 access_account_payment_api_second_factor,Payment API second factor for Payment Manager,model_account_payment_api_second_factor,account_payment_order.group_account_payment,1,1,1,0
 access_account_payment_api_second_factor_state,Payment API second factor state (no user access),model_account_payment_api_second_factor_state,,0,0,0,0
+access_account_payment_api_line_close,Close unknown payment for Accounting Manager,model_account_payment_api_line_close,account.group_account_manager,1,1,1,0

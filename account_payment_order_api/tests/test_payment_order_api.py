@@ -538,3 +538,96 @@ class TestPaymentOrderApi(AccountTestInvoicingCommon):
         with self.assertRaises(AccessError):
             reader.api_line_ids.action_api_cancel()
         self.assertEqual(self.bank.calls, calls)
+
+    def _unknown_lines(self):
+        self.bank.send_answer = PaymentApiResultUnknown("timeout")
+        self.order.action_api_send()
+        self.bank.query_answer = {
+            line.id: {"state": "unknown"} for line in self.order.api_line_ids
+        }
+        self.order.action_api_check()
+        return self.order.api_line_ids
+
+    def _close(self, line, outcome, user):
+        calls = list(self.bank.calls)
+        action = line.with_user(user).action_api_close_unknown()
+        form = self.env[action["res_model"]].with_user(user)
+        wizard = form.create(
+            {
+                "line_id": action["context"]["default_line_id"],
+                "outcome": outcome,
+                "reason": " Seen on the statement ",
+                "checked": True,
+            }
+        )
+        result = wizard.action_confirm()
+        self.assertEqual(self.bank.calls, calls)
+        return result
+
+    def test_close_unknown_line_checked_at_the_bank(self):
+        lines = self._unknown_lines()
+        manager = self._payment_user(
+            "account.group_account_manager,account_payment_order.group_account_payment"
+        )
+        with self.assertRaises(AccessError):
+            lines[0].with_user(self._payment_user()).action_api_close_unknown()
+        lines[0].sudo().bank_reference = "AT-THE-BANK"
+        with self.assertRaisesRegex(UserError, "no identifier"):
+            lines[0].with_user(manager).action_api_close_unknown()
+        lines[0].sudo().bank_reference = False
+        wizard = (
+            self.env["account.payment.api.line.close"]
+            .with_user(manager)
+            .create({"line_id": lines[0].id, "outcome": "paid", "reason": "x"})
+        )
+        with self.assertRaisesRegex(UserError, "checked"):
+            wizard.action_confirm()
+
+        self._close(lines[0], "paid", manager)
+        self.assertEqual(lines[0].state, "paid")
+        self.assertEqual(self.order.api_state, "tracking")
+        self.assertIn(
+            lines[0].move_line_id.move_id.payment_state, ("in_payment", "paid")
+        )
+        message = self.order.message_ids[0]
+        self.assertEqual(message.author_id, manager.partner_id)
+        self.assertIn("Seen on the statement", message.body)
+
+        self._close(lines[1], "refused", manager)
+        self.assertEqual(lines[1].state, "refused")
+        self.assertEqual(lines[1].reason, "Seen on the statement")
+        self.assertEqual(lines[1].payment_id.state, "canceled")
+        self.assertEqual(lines[1].move_line_id.move_id.payment_state, "not_paid")
+        self.assertEqual(self.order.api_batch_ids.state, "sent")
+        self.assertEqual(self.order.state, "uploaded")
+        self.assertEqual(self.order.api_state, "done")
+
+    def test_close_unknown_needs_the_code_when_the_mode_asks(self):
+        lines = self._unknown_lines()
+        self._enable_second_factor()
+        manager = self._payment_user(
+            "account.group_account_manager,account_payment_order.group_account_payment"
+        )
+        self._give_secret(manager)
+        self.session.uid = manager.id
+        factor = self.env["account.payment.api.second.factor"].with_user(manager)
+        good = {self._code(offset) for offset in (-1, 0, 1, 2)}
+        wrong = next(
+            c
+            for c in ("000000", "000001", "000002", "000003", "000004", "000005")
+            if c not in good
+        )
+        calls = list(self.bank.calls)
+        for line, outcome, offset in zip(
+            lines, ("paid", "refused"), (0, 1), strict=True
+        ):
+            action = self._close(line, outcome, manager)
+            self.assertEqual(action["res_model"], factor._name)
+            self.assertEqual(line.state, "unknown")
+            wizard = factor.browse(action["res_id"])
+            self.assertIn("double-check", self._refusal(wizard, wrong))
+            self.assertEqual(line.state, "unknown")
+            self._confirm(wizard, self._code(offset))
+            self.assertEqual(line.state, outcome)
+        self.assertEqual(self.order.state, "uploaded")
+        self.assertEqual(self.bank.calls, calls)

@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
 from odoo import _, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 
 LINE_STATES = [
     ("pending", "Pending"),
@@ -74,6 +74,52 @@ class AccountPaymentApiLine(models.Model):
         for batch in lines.batch_id:
             batch._api_cancel_lines(lines.filtered(lambda x, b=batch: x.batch_id == b))
         return True
+
+    def _api_check_can_close(self):
+        if not self.env.user.has_group("account.group_account_manager"):
+            raise AccessError(
+                _("Only accounting managers close a payment checked at the bank.")
+            )
+        for line in self:
+            if line.state != "unknown" or line.bank_reference:
+                raise UserError(
+                    _(
+                        "Only a payment with unknown status and no identifier at the "
+                        "bank can be closed by hand: use Check Bank Now for the others."
+                    )
+                )
+
+    def action_api_close_unknown(self):
+        self.ensure_one()
+        self._api_check_can_close()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Close Payment Checked at the Bank"),
+            "res_model": "account.payment.api.line.close",
+            "view_mode": "form",
+            "views": [(False, "form")],
+            "target": "new",
+            "context": {"default_line_id": self.id},
+        }
+
+    def _api_close_unknown(self, outcome, reason):
+        """Apply what the user found at the bank, as a check at the bank would."""
+        self.ensure_one()
+        self._api_check_can_close()
+        self._api_apply({"state": outcome, "reason": reason})
+        self.order_id._api_update_state()
+        self.order_id.message_post(
+            body=_(
+                "%(user)s checked at the bank and closed the payment to %(partner)s "
+                "as %(outcome)s: %(reason)s",
+                user=self.env.user.name,
+                partner=self.partner_id.name,
+                outcome=_("paid") if outcome == "paid" else _("not paid"),
+                reason=reason,
+            ),
+            author_id=self.env.user.partner_id.id,
+            subtype_xmlid="mail.mt_note",
+        )
 
     def _api_apply(self, result):
         """Apply a normalized provider result to the line.

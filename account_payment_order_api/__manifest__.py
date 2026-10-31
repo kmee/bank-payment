@@ -21,6 +21,7 @@
         "views/account_payment_api_batch.xml",
         "views/account_payment_order.xml",
         "views/res_config_settings.xml",
+        "wizard/account_payment_api_line_close.xml",
         "wizard/account_payment_api_second_factor.xml",
     ],
     "installable": True,

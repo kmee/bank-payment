@@ -32,6 +32,14 @@
                     invisible="state not in ('accepted', 'awaiting_release', 'scheduled')"
                     confirm="Ask the bank to cancel this payment?"
                 />
+                <button
+                    name="action_api_close_unknown"
+                    type="object"
+                    string="Close Checked at the Bank"
+                    icon="fa-check-square-o"
+                    groups="account.group_account_manager"
+                    invisible="state != 'unknown' or bank_reference"
+                />
             </list>
         </field>
     </record>
