@@ -8,6 +8,10 @@
    checks them at once. Paid lines are posted and reconciled, refused ones are
    freed, and the order is done when every line has a final status.
 #. Lines the bank has not executed yet can be cancelled from the **Bank** tab.
+#. An accounting manager can close a line with unknown status and no
+   identifier at the bank, after checking it there: **Close Checked at the Bank**
+   records paid or not paid with a mandatory reason on the order, without calling
+   the bank. It asks for the authenticator code when the payment mode requires it.
 
 With **Require Second Factor** on the payment mode, **Send to Bank** asks for a
 code from the authenticator app of the user, who enables two-factor
